@@ -14,7 +14,6 @@ from config import DatasetSpec, NULL_MARKERS
 
 
 def load_raw(spark: SparkSession, spec: DatasetSpec) -> DataFrame:
-    """Load a dataset from its declared format. Generic across all datasets."""
     if spec.file_format == "csv":
         return (
             spark.read.options(**spec.csv_options).csv(spec.input_path)
@@ -25,13 +24,6 @@ def load_raw(spark: SparkSession, spec: DatasetSpec) -> DataFrame:
 
 
 def write_bronze_copy(df: DataFrame, bronze_root: str, dataset_name: str) -> None:
-    """
-    Land an unmodified copy of the raw load as Delta before any
-    transformation is applied. This is the actual bronze layer promised by
-    the Task 2 directory design: a reproducible, queryable record of exactly
-    what was ingested, independent of whether the original source file is
-    later moved, rotated, or deleted upstream.
-    """
     (
         df.write.format("delta")
         .mode("overwrite")
@@ -42,23 +34,18 @@ def write_bronze_copy(df: DataFrame, bronze_root: str, dataset_name: str) -> Non
 
 def _to_snake_case(col_name: str) -> str:
     name = col_name.strip()
-    name = re.sub(r"[^0-9a-zA-Z]+", "_", name)          # spaces/punctuation -> _
-    name = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", name)  # camelCase -> camel_Case
+    name = re.sub(r"[^0-9a-zA-Z]+", "_", name)          
+    name = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", name) 
     name = re.sub(r"_+", "_", name).strip("_")
     return name.lower()
 
 
 def standardize_column_names(df: DataFrame) -> DataFrame:
-    """Convert every column name to lowercase snake_case (Task 4.3)."""
     renamed = [F.col(c).alias(_to_snake_case(c)) for c in df.columns]
     return df.select(*renamed)
 
 
 def normalize_nulls(df: DataFrame) -> DataFrame:
-    """
-    Convert common textual null markers to real SQL NULL for every string
-    column (Task 4.4). Non-string columns are left untouched.
-    """
     string_cols = [f.name for f in df.schema.fields if f.dataType.typeName() == "string"]
     for c in string_cols:
         df = df.withColumn(
@@ -70,13 +57,6 @@ def normalize_nulls(df: DataFrame) -> DataFrame:
 def write_delta(df: DataFrame, path: str, partition_cols=None, mode: str = "overwrite") -> None:
     writer_df = df
     if partition_cols:
-        # Repartition by the partition columns first (not just sort within
-        # each task's existing rows) so rows sharing a partition value are
-        # concentrated into a small number of Spark tasks. Without this, a
-        # single task's rows can span several output partitions, forcing
-        # several partition-file writers open at once and multiplying
-        # Parquet's per-writer row-group memory (see the "Scaling row group
-        # sizes for N writers" warnings this produces under memory pressure).
         writer_df = df.repartition(*partition_cols).sortWithinPartitions(*partition_cols)
     writer = writer_df.write.format("delta").mode(mode).option("overwriteSchema", "true")
     if partition_cols:

@@ -17,7 +17,6 @@ def build_integrated_taxi_trips(spark: SparkSession, silver_root: str, gold_root
     air_quality = spark.read.format("delta").load(f"{silver_root}/air_quality")
     zones = spark.read.format("delta").load(f"{silver_root}/taxi_zones")
 
-    # --- zones (broadcast: lookup table, a few hundred rows) ---
     pickup_zone = (
         F.broadcast(zones)
         .select(
@@ -45,9 +44,6 @@ def build_integrated_taxi_trips(spark: SparkSession, silver_root: str, gold_root
         )
     )
 
-    # --- weather: one row per hour by primary-key contract enforced at
-    # ingestion (silver duplicate-PK rows are rejected, not written here), so
-    # this is a plain 1:1 hourly join — no defensive aggregation needed. ---
     weather_hourly = weather.select(
         F.col("observation_hour_utc").alias("weather_hour_utc"),
         *[c for c in weather.columns if c not in ("observation_hour_utc", "observation_timestamp_utc", "observation_timestamp_local")],
@@ -57,8 +53,6 @@ def build_integrated_taxi_trips(spark: SparkSession, silver_root: str, gold_root
     ).drop("weather_hour_utc")
     enriched = enriched.withColumn("weather_available", F.col("observation_hour_utc").isNotNull() if "observation_hour_utc" in enriched.columns else F.lit(False))
 
-    # --- air quality: no spatial key available (Task 5.4) -> citywide
-    # per-pollutant hourly mean, collected into a map. ---
     aq_hourly = (
         air_quality.groupBy("observation_hour_utc", "parameter_name")
         .agg(

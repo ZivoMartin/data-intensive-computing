@@ -37,10 +37,6 @@ TIMESTAMP_CHECK_COLUMNS = {
 
 
 def ingest_dataset(spark: SparkSession, spec: DatasetSpec, output_roots: dict) -> dict:
-    """
-    Run the full generic ingestion sequence for one dataset and return an
-    ingestion-metadata record (also appended to metadata/ingestion_runs).
-    """
     start = time.time()
 
     raw_df = load_raw(spark, spec)
@@ -59,9 +55,6 @@ def ingest_dataset(spark: SparkSession, spec: DatasetSpec, output_roots: dict) -
     df = check_timestamp_columns(df, TIMESTAMP_CHECK_COLUMNS.get(spec.name, []))
     df = check_numeric_ranges(df, spec.numeric_range_checks)
 
-    # Taxi-specific quality rule lives here rather than in generic quality.py
-    # because "dropoff before pickup" only makes sense for a trip dataset —
-    # generic checks stay dataset-agnostic, this one stays local to the caller.
     if spec.name == "taxi_trips":
         from quality import _append_reason  # noqa: PLC0415 (kept local to this branch)
 

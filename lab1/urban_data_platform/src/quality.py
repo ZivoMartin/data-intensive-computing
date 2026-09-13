@@ -15,12 +15,7 @@ REJECTION_COL = "rejection_reasons"
 
 
 def validate_required_schema(df: DataFrame, spec: DatasetSpec) -> None:
-    """
-    Fail fast if the raw source is missing columns the platform depends on.
-    Standardized (snake_case) names are compared, so this must run AFTER
-    standardize_column_names.
-    """
-    from io_utils import _to_snake_case  # local import avoids a circular dep at module load
+    from io_utils import _to_snake_case
 
     present = set(df.columns)
     expected = {_to_snake_case(c) for c in spec.required_columns}
@@ -33,7 +28,6 @@ def validate_required_schema(df: DataFrame, spec: DatasetSpec) -> None:
 
 
 def _append_reason(df: DataFrame, condition, message: str) -> DataFrame:
-    """Append `message` to the rejection_reasons array whenever `condition` is true."""
     if REJECTION_COL not in df.columns:
         df = df.withColumn(REJECTION_COL, F.array().cast("array<string>"))
     return df.withColumn(

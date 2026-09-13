@@ -41,9 +41,6 @@ def transform_taxi_trips(df: DataFrame) -> DataFrame:
     df = df.withColumn("pickup_year", F.year(F.col("pickup_timestamp_utc")))
     df = df.withColumn("pickup_month", F.month(F.col("pickup_timestamp_utc")))
 
-    # Deterministic synthetic primary key: no source attribute uniquely
-    # identifies a trip (Task 1). Hashing the full normalized row means two
-    # rows are only merged as "the same trip" if every field matches exactly.
     hash_input = F.concat_ws(
         "|",
         *[F.coalesce(F.col(c).cast("string"), F.lit("")) for c in df.columns],
