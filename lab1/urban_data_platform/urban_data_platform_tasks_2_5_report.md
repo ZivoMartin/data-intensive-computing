@@ -1,3 +1,4 @@
+
 ## Task 2 — Storage Architecture
 
 ### 2.1 Directory structure
@@ -95,7 +96,7 @@ At 20x the current volume, the logical design can remain unchanged, but the phys
 2. Consider year/month/day partitioning only if monthly partitions become very large and queries commonly restrict to individual days.
 3. Compact small files periodically.
 4. Use Delta optimization features available in the execution environment.
-6. Use incremental ingestion instead of overwriting complete tables.
+5. Use incremental ingestion instead of overwriting complete tables.
 
 
 ### 2.9 Architecture diagram
@@ -140,9 +141,11 @@ The generic ingestion sequence is:
 ```text
 load raw file
     ↓
+standardize column naming
+    ↓
 validate required schema
     ↓
-apply standard column naming
+write unmodified copy to Bronze (Delta)
     ↓
 normalize nulls, types and timestamps
     ↓
@@ -152,12 +155,14 @@ run quality checks
     ↓
 split valid / rejected rows
     ↓
-write valid rows as Delta
+write valid rows as Silver Delta
     ↓
 write rejected rows + reasons
     ↓
 append ingestion metadata
 ```
+
+The Bronze write is a genuine landing step, not just reserved directory space: it persists the raw, standardized-but-untransformed rows as Delta immediately after schema validation, so ingestion can be reproduced or re-transformed later even if the original source file is rotated or deleted upstream. It is intentionally the *only* generic step besides Silver writing that touches storage — it never runs dataset-specific logic.
 
 ### 3.2 Generic and reusable components
 
@@ -506,12 +511,7 @@ Taxi trips are associated with the weather observation from the same UTC hour:
 taxi.pickup_hour_utc = weather.observation_hour_utc
 ```
 
-If duplicate weather rows exist for the same hour, the integration stage produces one hourly record by:
-
-- averaging numeric fields;
-- taking the first non-null categorical/source value.
-
-This strategy is appropriate because the weather dataset is defined as hourly observations.
+The join is a plain 1:1 hourly join, not a defensive many-to-one aggregation. `(year, month, day, hour)` is the declared weather primary key (Task 1), and the generic ingestion framework rejects any row participating in a duplicate-primary-key violation before Silver is ever written (3.6). Silver `weather` is therefore guaranteed to contain at most one row per hour by construction, so no averaging or "first non-null" fallback logic is needed — or present — at integration time. If a future extension introduces multiple weather stations, the primary key (and this join) would need to be widened to include a station identifier rather than re-introducing aggregation here.
 
 ### 5.4 Air-quality integration strategy
 
@@ -569,6 +569,12 @@ If air quality is missing:
 ```text
 air_quality_measurements = NULL
 air_quality_available = false
+```
+
+If a pickup or dropoff `location_id` has no match in the taxi-zone lookup — which happens in practice, since the real NYC lookup includes unmapped/"Unknown" zone IDs — the corresponding zone and borough columns are null and:
+
+```text
+zone_available = false
 ```
 
 No forward fill, backward fill, interpolation, or synthetic value is applied.

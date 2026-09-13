@@ -1,0 +1,6 @@
+*.csv 
+*.parquet
+*.pdf
+*.crc
+*.json
+*.pyc
