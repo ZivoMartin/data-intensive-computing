@@ -1,0 +1,25 @@
+weather: year,month,day,hour,temp,temp_source,rhum,rhum_source,prcp,prcp_source,snwd,snwd_source,wdir,wdir_source,wspd,wspd_source,wpgt,wpgt_source,pres,pres_source,cldc,cldc_source,coco,coco_source
+
+
+
+Taxi zone lookup:
+
+"LocationID","Borough","Zone","service_zone"
+
+
+
+Taxi trip:
+
+
+
+|VendorID|tpep_pickup_datetime|tpep_dropoff_datetime|passenger_count|trip_distance|RatecodeID|store_and_fwd_flag|PULocationID|DOLocationID|payment_type|fare_amount|extra|mta_tax|tip_amount|tolls_amount|improvement_surcharge|total_amount|congestion_surcharge|Airport_fee|
+
+
+
+
+
+Air quality:
+
+
+
+"State Code","County Code","Site Num","Parameter Code","POC","Latitude","Longitude","Datum","Parameter Name","Date Local","Time Local","Date GMT","Time GMT","Sample Measurement","Units of Measure","MDL","Uncertainty","Qualifier","Method Type","Method Code","Method Name","State Name","County Name","Date of Last Change"
