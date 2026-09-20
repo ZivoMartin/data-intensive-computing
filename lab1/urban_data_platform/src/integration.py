@@ -50,8 +50,9 @@ def build_integrated_taxi_trips(spark: SparkSession, silver_root: str, gold_root
     )
     enriched = enriched.join(
         weather_hourly, enriched["pickup_hour_utc"] == weather_hourly["weather_hour_utc"], "left"
-    ).drop("weather_hour_utc")
-    enriched = enriched.withColumn("weather_available", F.col("observation_hour_utc").isNotNull() if "observation_hour_utc" in enriched.columns else F.lit(False))
+    )
+    enriched = enriched.withColumn("weather_available", F.col("weather_hour_utc").isNotNull())
+    enriched = enriched.drop("weather_hour_utc")
 
     aq_hourly = (
         air_quality.groupBy("observation_hour_utc", "parameter_name")
