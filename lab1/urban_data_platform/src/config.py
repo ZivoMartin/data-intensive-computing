@@ -1,11 +1,3 @@
-"""
-Dataset configuration model.
-
-Every dataset the platform ingests is described declaratively by a
-DatasetSpec. The generic ingestion framework (ingestion.py) never contains
-dataset-name-specific logic — anything dataset-specific lives either in this
-spec or in a small transform function registered on it (see transforms.py).
-"""
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Tuple
 

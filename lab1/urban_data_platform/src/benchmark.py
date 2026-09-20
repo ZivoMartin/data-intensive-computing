@@ -1,13 +1,3 @@
-"""
-Task 6 — benchmark two Taxi Trips storage strategies:
-
-  Strategy A: partitioned by (pickup_year, pickup_month)  -- the Task 2 design
-  Strategy B: partitioned by (pulocation_id)               -- introduced for this benchmark
-
-For each strategy this module writes the table, then times the three
-required queries, and reports storage size + file counts. Results should be
-copied into report section 6.6.
-"""
 import time
 
 from pyspark.sql import DataFrame, SparkSession
@@ -115,7 +105,6 @@ def run_task6_benchmark(spark: SparkSession, silver_root: str, bench_root: str) 
 
 
 def print_results_markdown(results: dict) -> None:
-    """Emit a markdown table ready to paste into report section 6.6."""
     a, b = results["strategy_a_by_month"], results["strategy_b_by_pulocation"]
     print("| Metric | Strategy A (by month) | Strategy B (by pulocation_id) |")
     print("|---|---|---|")

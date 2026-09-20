@@ -1,21 +1,3 @@
-"""
-Week 2 CLI entrypoint.
-
-Subcommands
------------
-    run-queries      Execute the analytical query library and show results.
-    build-products   Build/refresh the reusable Delta data products.
-    run-benchmark    Run the full Task 5 evaluation (timings, plans, storage).
-    all              build-products then run-benchmark.
-
-All subcommands assume the Week 1 pipeline has already produced the silver and
-gold Delta tables under --output-root (i.e. main.py has been run).
-
-Example
--------
-    spark-submit --packages io.delta:delta-spark_2.12:3.2.0 \\
-        run_week2.py run-benchmark --output-root ./data/lakehouse
-"""
 import argparse
 import sys
 from pathlib import Path

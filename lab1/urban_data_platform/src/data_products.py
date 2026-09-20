@@ -1,37 +1,3 @@
-"""
-Week 2 — Task 4: reusable analytical data products.
-
-Each data product is a pre-aggregated summary derived automatically from
-``gold/integrated_taxi_trips`` and written as its own partitioned/ordered
-Delta table under ``<output_root>/gold/products/<name>``. Analysts query the
-product directly instead of re-running the heavy source aggregation.
-
-Every product row carries provenance/metadata columns:
-
-    _data_source        the source table it was derived from
-    _created_at         first-build timestamp (UTC)
-    _refreshed_at       timestamp of the run that produced the current rows
-    _schema_version     product schema version string
-
-A companion metadata log is appended to
-``<output_root>/metadata/data_products`` on every build so the platform keeps
-an auditable history of when each product was refreshed, how many rows it has,
-and its on-disk size.
-
-The five products
------------------
-    daily_mobility_summary     per-day citywide mobility KPIs
-    taxi_zone_statistics       per-zone lifetime statistics
-    weather_impact_summary     demand & trip metrics per weather condition
-    air_quality_impact_summary demand per air-quality band
-    borough_mobility_summary   per-borough monthly mobility KPIs
-
-Rationale for materialization (report Task 4): these summaries collapse tens of
-millions of trip rows into at most a few thousand rows, are read far more often
-than the underlying data changes, and back dashboards/reports where interactive
-latency matters. Recomputing them on demand would repeat the same full scan for
-every viewer; materializing pays that cost once per refresh.
-"""
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Callable, Dict, List, Optional
@@ -44,9 +10,6 @@ import queries
 SOURCE_TABLE = "gold/integrated_taxi_trips"
 
 
-# --------------------------------------------------------------------------
-# Product definition
-# --------------------------------------------------------------------------
 @dataclass(frozen=True)
 class DataProductSpec:
     name: str
@@ -59,11 +22,6 @@ class DataProductSpec:
     builder: Callable[[SparkSession], DataFrame]
 
 
-# --------------------------------------------------------------------------
-# Builders — each returns a plain (un-decorated) aggregate DataFrame.
-# They read the canonical `integrated_taxi_trips` view registered by
-# queries.register_views(), so they compose with the rest of Week 2.
-# --------------------------------------------------------------------------
 def _build_daily_mobility_summary(spark: SparkSession) -> DataFrame:
     return spark.sql(
         """
@@ -176,9 +134,6 @@ def _build_borough_mobility_summary(spark: SparkSession) -> DataFrame:
     )
 
 
-# --------------------------------------------------------------------------
-# Registry
-# --------------------------------------------------------------------------
 PRODUCTS: Dict[str, DataProductSpec] = {
     "daily_mobility_summary": DataProductSpec(
         name="daily_mobility_summary",
@@ -233,9 +188,6 @@ PRODUCTS: Dict[str, DataProductSpec] = {
 }
 
 
-# --------------------------------------------------------------------------
-# Build / refresh
-# --------------------------------------------------------------------------
 def _decorate_with_metadata(df: DataFrame, spec: DataProductSpec, created_at: datetime,
                             refreshed_at: datetime) -> DataFrame:
     return (
@@ -251,7 +203,6 @@ def _product_path(gold_root: str, name: str) -> str:
 
 
 def _existing_created_at(spark: SparkSession, path: str) -> Optional[datetime]:
-    """Preserve the original _created_at across refreshes if the table exists."""
     try:
         row = spark.read.format("delta").load(path).select("_created_at").limit(1).collect()
         return row[0]["_created_at"] if row else None
@@ -275,7 +226,6 @@ def _dir_size_bytes(spark: SparkSession, path: str) -> int:
 
 def build_product(spark: SparkSession, spec: DataProductSpec, gold_root: str,
                   metadata_root: str) -> dict:
-    """Build/refresh a single data product and append a metadata-log record."""
     path = _product_path(gold_root, spec.name)
     refreshed_at = datetime.now(timezone.utc)
     created_at = _existing_created_at(spark, path) or refreshed_at
@@ -316,7 +266,6 @@ def _append_metadata(spark: SparkSession, metadata_root: str, record: dict) -> N
 
 
 def build_all_products(spark: SparkSession, gold_root: str, metadata_root: str) -> List[dict]:
-    """Build/refresh every registered data product."""
     records = []
     for spec in PRODUCTS.values():
         print(f"[product] building {spec.name}")

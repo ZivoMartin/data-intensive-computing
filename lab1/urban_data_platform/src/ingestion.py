@@ -1,10 +1,3 @@
-"""
-Generic ingestion pipeline.
-
-ingest_dataset() is the one function used for every dataset in the platform.
-Everything dataset-specific is pulled from the DatasetSpec passed in, or from
-the transform function it references.
-"""
 import time
 from datetime import datetime, timezone
 
@@ -40,7 +33,7 @@ def ingest_dataset(spark: SparkSession, spec: DatasetSpec, output_roots: dict) -
     start = time.time()
 
     raw_df = load_raw(spark, spec)
-    validate_required_schema(standardize_column_names(raw_df), spec)  # fail fast, pre-transform
+    validate_required_schema(standardize_column_names(raw_df), spec)
 
     df = standardize_column_names(raw_df)
     write_bronze_copy(df, output_roots["bronze"], spec.name)
@@ -56,7 +49,7 @@ def ingest_dataset(spark: SparkSession, spec: DatasetSpec, output_roots: dict) -
     df = check_numeric_ranges(df, spec.numeric_range_checks)
 
     if spec.name == "taxi_trips":
-        from quality import _append_reason  # noqa: PLC0415 (kept local to this branch)
+        from quality import _append_reason
 
         df = _append_reason(
             df,

@@ -1,50 +1,9 @@
-"""
-Week 2 — Task 1 & 2: reusable analytical query library.
-
-Every analysis required by the assignment is expressed here as a pure Spark
-SQL string plus a thin Python wrapper that returns a DataFrame. Keeping the
-queries as named SQL text (rather than DataFrame chains) means they can be:
-
-  * executed directly against the Week 1 Delta tables,
-  * fed verbatim to ``EXPLAIN FORMATTED`` for the optimization experiments,
-  * materialized into the Week 2 data products, and
-  * pasted into the report unchanged.
-
-Design boundary
----------------
-This module knows *nothing* about file paths. The caller is responsible for
-registering the underlying Delta tables as temp views with the canonical
-names below (see :func:`register_views`). That keeps the query text portable
-across the integrated gold table and the raw silver tables, and lets the
-optimization module swap a cached / re-partitioned view under the same name
-without touching a single query.
-
-Canonical view names
----------------------
-    integrated_taxi_trips   gold/integrated_taxi_trips  (enriched trips)
-    silver_taxi_trips       silver/taxi_trips
-    silver_weather          silver/weather
-    silver_air_quality      silver/air_quality
-    silver_taxi_zones       silver/taxi_zones
-
-The six analyses (assignment Task 1)
-------------------------------------
-    Q1  monthly_demand_by_zone          Monthly taxi demand for each taxi zone.
-    Q2  avg_distance_by_weather         Average trip distance under different weather conditions.
-    Q3  air_quality_vs_demand           Relationship between air quality and taxi demand.
-    Q4  zone_demand_weather_variation   Zones with the largest demand variation across weather.
-    Q5  peak_hours_by_weekday           Peak travel hours for each day of the week.
-    Q6  monthly_demand_trend            Monthly trends in taxi demand.
-"""
 from dataclasses import dataclass
 from typing import Callable, Dict, List
 
 from pyspark.sql import DataFrame, SparkSession
 
 
-# --------------------------------------------------------------------------
-# View registration
-# --------------------------------------------------------------------------
 CANONICAL_VIEWS = {
     "integrated_taxi_trips": "gold/integrated_taxi_trips",
     "silver_taxi_trips": "silver/taxi_trips",
@@ -55,11 +14,6 @@ CANONICAL_VIEWS = {
 
 
 def register_views(spark: SparkSession, silver_root: str, gold_root: str) -> None:
-    """Register the Week 1 Delta tables under their canonical view names.
-
-    Idempotent: uses createOrReplaceTempView so the optimization module can
-    later re-register a cached/re-partitioned DataFrame under the same name.
-    """
     spark.read.format("delta").load(f"{gold_root}/integrated_taxi_trips").createOrReplaceTempView(
         "integrated_taxi_trips"
     )
@@ -77,14 +31,6 @@ def register_views(spark: SparkSession, silver_root: str, gold_root: str) -> Non
     )
 
 
-# --------------------------------------------------------------------------
-# Weather-condition bucketing
-# --------------------------------------------------------------------------
-# The raw weather feed exposes a numeric `coco` (Meteostat weather-condition
-# code) plus continuous measurements. For "different weather conditions" we
-# derive a small, stable set of human-readable categories from precipitation,
-# snow depth and temperature. Defined once as a SQL expression so Q2 and Q4
-# bucket identically.
 WEATHER_CONDITION_EXPR = """
     CASE
         WHEN prcp IS NULL AND snwd IS NULL AND temp IS NULL THEN 'unknown'
@@ -98,10 +44,6 @@ WEATHER_CONDITION_EXPR = """
 """
 
 
-# --------------------------------------------------------------------------
-# The six analytical queries
-# --------------------------------------------------------------------------
-# Q1 — Monthly taxi demand for each taxi zone.
 Q1_MONTHLY_DEMAND_BY_ZONE = """
     SELECT
         pickup_year,
@@ -118,7 +60,6 @@ Q1_MONTHLY_DEMAND_BY_ZONE = """
     ORDER BY pickup_year, pickup_month, trip_count DESC
 """
 
-# Q2 — Average trip distance under different weather conditions.
 Q2_AVG_DISTANCE_BY_WEATHER = f"""
     SELECT
         {WEATHER_CONDITION_EXPR}       AS weather_condition,
@@ -132,10 +73,6 @@ Q2_AVG_DISTANCE_BY_WEATHER = f"""
     ORDER BY trip_count DESC
 """
 
-# Q3 — Relationship between air quality and taxi demand.
-# Air-quality context is a citywide hourly mean per pollutant, stored as a map
-# in the integrated table (Week 1, report 5.4). We probe PM2.5, bucket it into
-# EPA-style bands, and correlate with hourly trip demand.
 Q3_AIR_QUALITY_VS_DEMAND = """
     WITH hourly AS (
         SELECT
@@ -169,9 +106,6 @@ Q3_AIR_QUALITY_VS_DEMAND = """
     ORDER BY avg_pm25
 """
 
-# Q4 — Taxi zones with the largest variation in demand under different weather.
-# For each zone, compute trips-per-day under each weather condition, then the
-# spread (stddev / max-min) of those per-condition daily averages.
 Q4_ZONE_DEMAND_WEATHER_VARIATION = f"""
     WITH per_zone_condition AS (
         SELECT
@@ -210,9 +144,6 @@ Q4_ZONE_DEMAND_WEATHER_VARIATION = f"""
     ORDER BY stddev_daily_trips DESC
 """
 
-# Q5 — Peak travel hours for each day of the week.
-# Rank hours within each weekday by average trips-per-day, so the result is
-# directly the "peak hours" ordering.
 Q5_PEAK_HOURS_BY_WEEKDAY = """
     WITH per_day_hour AS (
         SELECT
@@ -242,7 +173,6 @@ Q5_PEAK_HOURS_BY_WEEKDAY = """
     ORDER BY weekday_index, hour_rank
 """
 
-# Q6 — Monthly trends in taxi demand (citywide), with month-over-month change.
 Q6_MONTHLY_DEMAND_TREND = """
     WITH monthly AS (
         SELECT
@@ -274,14 +204,12 @@ Q6_MONTHLY_DEMAND_TREND = """
 
 @dataclass(frozen=True)
 class AnalyticalQuery:
-    """A named analytical query plus a short human description."""
 
     key: str
     title: str
     sql: str
 
 
-# Registry — single source of truth used by the runner, optimizer and benchmark.
 QUERIES: Dict[str, AnalyticalQuery] = {
     "q1_monthly_demand_by_zone": AnalyticalQuery(
         "q1_monthly_demand_by_zone",
@@ -317,14 +245,12 @@ QUERIES: Dict[str, AnalyticalQuery] = {
 
 
 def run_query(spark: SparkSession, key: str) -> DataFrame:
-    """Execute one analytical query by key and return its DataFrame."""
     if key not in QUERIES:
         raise KeyError(f"Unknown query '{key}'. Known: {sorted(QUERIES)}")
     return spark.sql(QUERIES[key].sql)
 
 
 def run_all(spark: SparkSession) -> Dict[str, DataFrame]:
-    """Execute every analytical query; returns {key: DataFrame} (lazy)."""
     return {key: spark.sql(q.sql) for key, q in QUERIES.items()}
 
 

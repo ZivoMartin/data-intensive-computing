@@ -1,25 +1,3 @@
-"""
-Week 2 — Task 5: platform evaluation / benchmarking.
-
-Produces the experimental evidence the benchmark report is built from:
-
-  1. Baseline timing of all six analytical queries (median of N runs).
-  2. Timing of each query against its materialized data product, where one
-     exists, to quantify the materialization speedup.
-  3. Storage overhead of every data product (bytes + row count) from the
-     data-product metadata log.
-  4. The four optimization experiments (caching, partition pruning, broadcast
-     join, AQE) with before/after timings, EXPLAIN FORMATTED plans, and
-     result-equality verification.
-
-Outputs (under ``<output_root>/bench_week2``):
-    results.json          full machine-readable results
-    benchmark_report.md   human-readable summary tables
-    plans/<name>.txt       EXPLAIN FORMATTED dumps (baseline + optimized)
-
-All timings use the same primitive as the optimization module so numbers are
-comparable across sections.
-"""
 import json
 import os
 from datetime import datetime, timezone
@@ -32,18 +10,6 @@ import optimizations
 import queries
 
 
-# Which analytical query each product can serve, and the SQL an analyst would
-# run against the product instead of the full query.
-#
-# The point of this section is "same answer, cheaper path". A mapping is only
-# valid if reading the product actually reproduces the query's result, so each
-# entry carries the product-side SQL rather than a blind `SELECT *`. The view
-# `_product_under_test` is registered on the product before the SQL runs.
-#
-# q1 (per-zone *monthly*) has no matching product: taxi_zone_statistics is
-# lifetime-per-zone, so it cannot reproduce the monthly breakdown. q4 and q5
-# likewise have no product. Those are left unmapped rather than compared
-# against something that returns different rows.
 PRODUCT_FOR_QUERY = {
     "q2_avg_distance_by_weather": (
         "weather_impact_summary",
@@ -53,11 +19,6 @@ PRODUCT_FOR_QUERY = {
         "air_quality_impact_summary",
         "SELECT * FROM _product_under_test",
     ),
-    # Q6 is citywide monthly. daily_mobility_summary holds one row per day, so
-    # the monthly trend is a cheap rollup of ~365 rows instead of a full scan
-    # of the trip table. avg_trip_distance must be re-weighted by trip_count —
-    # averaging daily averages would silently weight a quiet day the same as a
-    # busy one.
     "q6_monthly_demand_trend": (
         "daily_mobility_summary",
         """
@@ -81,9 +42,6 @@ def _write_text(path: str, text: str) -> None:
         fh.write(text)
 
 
-# --------------------------------------------------------------------------
-# Section 1 — baseline query timings
-# --------------------------------------------------------------------------
 def benchmark_queries(spark: SparkSession, runs: int = 3) -> Dict[str, Dict]:
     spark.catalog.clearCache()
     results = {}
@@ -99,16 +57,12 @@ def benchmark_queries(spark: SparkSession, runs: int = 3) -> Dict[str, Dict]:
     return results
 
 
-# --------------------------------------------------------------------------
-# Section 2 — product storage overhead (from metadata log)
-# --------------------------------------------------------------------------
 def collect_product_storage(spark: SparkSession, metadata_root: str) -> List[Dict]:
     path = f"{metadata_root}/data_products"
     try:
         df = spark.read.format("delta").load(path)
     except Exception:
         return []
-    # Latest refresh per product.
     latest = (
         df.orderBy("refreshed_at", ascending=False)
         .dropDuplicates(["product_name"])
@@ -118,9 +72,6 @@ def collect_product_storage(spark: SparkSession, metadata_root: str) -> List[Dic
     return [r.asDict() for r in latest.collect()]
 
 
-# --------------------------------------------------------------------------
-# Section 3 — materialization speedup (query vs product)
-# --------------------------------------------------------------------------
 def benchmark_materialization(spark: SparkSession, gold_root: str, runs: int = 3) -> List[Dict]:
     out = []
     for query_key, (product_name, product_sql) in PRODUCT_FOR_QUERY.items():
@@ -145,14 +96,10 @@ def benchmark_materialization(spark: SparkSession, gold_root: str, runs: int = 3
     return out
 
 
-# --------------------------------------------------------------------------
-# Section 4 — optimization experiments
-# --------------------------------------------------------------------------
 def benchmark_optimizations(spark: SparkSession, plans_dir: str, runs: int = 3) -> List[Dict]:
     results = optimizations.run_all_experiments(spark, runs=runs)
     summaries = []
     for r in results:
-        # Persist EXPLAIN FORMATTED plans for the report.
         _write_text(
             os.path.join(plans_dir, f"{r.technique}_{r.query_key}_baseline.txt"),
             r.baseline_plan,
@@ -165,9 +112,6 @@ def benchmark_optimizations(spark: SparkSession, plans_dir: str, runs: int = 3) 
     return summaries
 
 
-# --------------------------------------------------------------------------
-# Report rendering
-# --------------------------------------------------------------------------
 def render_markdown(all_results: Dict) -> str:
     lines: List[str] = []
     lines.append("# Week 2 Benchmark Report\n")
@@ -215,12 +159,8 @@ def render_markdown(all_results: Dict) -> str:
     return "\n".join(lines) + "\n"
 
 
-# --------------------------------------------------------------------------
-# Orchestration
-# --------------------------------------------------------------------------
 def run_week2_benchmark(spark: SparkSession, silver_root: str, gold_root: str,
                         metadata_root: str, bench_root: str, runs: int = 3) -> Dict:
-    """Run the full Week 2 evaluation and write results.json + report + plans."""
     queries.register_views(spark, silver_root, gold_root)
 
     query_timings = benchmark_queries(spark, runs=runs)

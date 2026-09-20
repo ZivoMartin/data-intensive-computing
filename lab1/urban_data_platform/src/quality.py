@@ -1,9 +1,3 @@
-"""
-Generic data-quality framework.
-
-Every check here operates on column names and PK/range definitions passed in
-via DatasetSpec — nothing here hardcodes a dataset name.
-"""
 from typing import List, Tuple
 
 from pyspark.sql import DataFrame, Window

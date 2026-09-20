@@ -1,10 +1,3 @@
-"""
-Dataset-specific transformations: raw-standardized DataFrame -> common model.
-
-Each function is registered on exactly one DatasetSpec (see main.py). None of
-this logic is shared with the generic ingestion framework — that is the
-Task 3.3 boundary between generic mechanics and dataset semantics.
-"""
 from pyspark.sql import DataFrame
 from pyspark.sql import functions as F
 from pyspark.sql.types import DoubleType, IntegerType, TimestampType

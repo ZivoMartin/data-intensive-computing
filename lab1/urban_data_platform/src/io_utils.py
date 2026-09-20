@@ -1,10 +1,3 @@
-"""
-Generic, dataset-agnostic I/O helpers.
-
-Nothing in this module knows about "taxi trips" or "weather" — it only knows
-about file formats, naming conventions, and null handling. All dataset
-semantics live in transforms.py.
-"""
 import re
 
 from pyspark.sql import DataFrame, SparkSession

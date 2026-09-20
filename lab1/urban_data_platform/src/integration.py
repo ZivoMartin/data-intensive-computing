@@ -1,10 +1,3 @@
-"""
-Task 5 — integration pipeline.
-
-Builds gold/integrated_taxi_trips: every taxi trip enriched with pickup/
-dropoff zone + borough, pickup-hour weather, and pickup-hour citywide
-air-quality pollutant means.
-"""
 from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql import functions as F
 

@@ -1,148 +1,156 @@
-# Urban Data Integration Platform
+# Urban Data Platform — Week 2
+
+Analytical query library, reusable data products, and query-optimization
+benchmarks built on top of the Week 1 Delta lakehouse.
+
+## Prerequisites
+
+- Java 8, 11, or 17 (Spark 3.5 does not support Java 21+)
+- Python 3.8–3.11 (PySpark 3.5.1 is untested on 3.12+)
+- A Week 1 lakehouse already built — this project reads
+  `<output-root>/silver/*` and `<output-root>/gold/integrated_taxi_trips`,
+  it does not create them
+
+```bash
+pip install -r requirements.txt
+```
+
+## 1. Run the analytical queries (Task 1 & 2)
+
+Run all six:
+
+```bash
+spark-submit \
+  --driver-memory 8g --master local[4] \
+  --packages io.delta:delta-spark_2.12:3.2.0 \
+  run_week2.py run-queries \
+  --output-root ./data/lakehouse
+```
+
+Run one query with more rows shown:
+
+```bash
+spark-submit \
+  --driver-memory 8g --master local[4] \
+  --packages io.delta:delta-spark_2.12:3.2.0 \
+  run_week2.py run-queries \
+  --output-root ./data/lakehouse \
+  --query q5_peak_hours_by_weekday --limit 30
+```
+
+Valid query keys: `q1_monthly_demand_by_zone`, `q2_avg_distance_by_weather`,
+`q3_air_quality_vs_demand`, `q4_zone_demand_weather_variation`,
+`q5_peak_hours_by_weekday`, `q6_monthly_demand_trend`.
+
+## 2. Generate the reusable data products (Task 4)
+
+```bash
+spark-submit \
+  --driver-memory 8g --master local[4] \
+  --packages io.delta:delta-spark_2.12:3.2.0 \
+  run_week2.py build-products \
+  --output-root ./data/lakehouse
+```
+
+Writes five Delta tables under `./data/lakehouse/gold/products/` —
+`daily_mobility_summary`, `taxi_zone_statistics`, `weather_impact_summary`,
+`air_quality_impact_summary`, `borough_mobility_summary` — and appends a
+build record to `./data/lakehouse/metadata/data_products` on every run.
+
+## 3. Reproduce the benchmark experiments (Task 3 & 5)
+
+```bash
+spark-submit \
+  --driver-memory 8g --master local[4] \
+  --packages io.delta:delta-spark_2.12:3.2.0 \
+  run_week2.py run-benchmark \
+  --output-root ./data/lakehouse \
+  --runs 3
+```
+
+This times all six queries, times each query against its matching data
+product, runs the four optimization experiments (caching, partition
+pruning, broadcast join, AQE), and writes:
+
+```
+./data/lakehouse/bench_week2/results.json          machine-readable results
+./data/lakehouse/bench_week2/benchmark_report.md    tables for the report
+./data/lakehouse/bench_week2/plans/*.txt            EXPLAIN FORMATTED plans
+```
+
+## Shortcut — steps 2 + 3 in one command
+
+```bash
+spark-submit \
+  --driver-memory 8g --master local[4] \
+  --packages io.delta:delta-spark_2.12:3.2.0 \
+  run_week2.py all \
+  --output-root ./data/lakehouse \
+  --runs 3
+```
+
+## Sanity check before trusting any of the above
+
+Confirm the Week 1 integration join actually matched rows before running
+anything in this project — an empty join silently produces valid-looking
+zero-row results downstream (weather_available in particular has a history
+of being computed against the wrong column name; see integration.py):
+
+```bash
+cat > /tmp/check_integration.py <<'EOF'
+from pyspark.sql import SparkSession
+spark = (SparkSession.builder
+    .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
+    .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
+    .getOrCreate())
+df = spark.read.format("delta").load("./data/lakehouse/gold/integrated_taxi_trips")
+df.selectExpr(
+    "count(*) AS total_rows",
+    "sum(cast(zone_available as int))        AS with_zone",
+    "sum(cast(weather_available as int))     AS with_weather",
+    "sum(cast(air_quality_available as int)) AS with_air_quality",
+).show()
+EOF
+
+spark-submit --packages io.delta:delta-spark_2.12:3.2.0 /tmp/check_integration.py
+```
+
+All three `with_*` counts should be close to `total_rows`. If `with_weather`
+comes back `0`, do not run the benchmark — Q2, Q4, and
+`weather_impact_summary` will all silently return zero rows.
 
 ## Layout
 
 ```
-urban_data_platform/
-├── main.py                  # CLI entrypoint
-├── src/
-│   ├── config.py             # DatasetSpec model
-│   ├── io_utils.py           # generic load/write/naming/null helpers
-│   ├── quality.py            # generic data-quality checks
-│   ├── transforms.py         # dataset-specific transformation functions
-│   ├── ingestion.py          # ingest_dataset() — the one function used per dataset
-│   ├── integration.py        # Task 5 — builds gold/integrated_taxi_trips
-│   └── benchmark.py          # Task 6 — two partitioning strategies, timed
-└── urban_data_platform_tasks_2_5_report.md
+run_week2.py            CLI entrypoint (run-queries / build-products / run-benchmark / all)
+src/
+  queries.py             the 6 analytical queries (Task 1 & 2)
+  data_products.py        the 5 reusable data products (Task 4)
+  optimizations.py        the 4 optimization experiments (Task 3)
+  benchmark_week2.py       ties timing + storage + plans into results.json / benchmark_report.md (Task 5)
+  ingestion.py, integration.py, io_utils.py, quality.py, transforms.py, config.py, benchmark.py
+                          Week 1 modules this project depends on
 ```
 
-## Expected raw input layout
+## Common gotchas
 
-```
-data/raw/
-├── taxi_trips/
-│   └── yellow_tripdata_2026-01.parquet
-├── weather/
-│   └── weather.csv
-├── air_quality/
-│   └── air_quality.csv
-└── taxi_zones/
-    └── taxi_zone_lookup.csv
-```
-
-## Run
-
-```bash
-spark-submit \
-  --packages io.delta:delta-spark_2.12:3.2.0 \
-  main.py \
-  --input-root ./data/raw \
-  --output-root ./data/lakehouse \
-  --run-benchmark
-```
-
-Match the `delta-spark` package version to the Spark version in your execution environment. Omit `--run-benchmark` to skip Task 6 and only run ingestion + integration.
-
-## Output
-
-```
-data/lakehouse/bronze/<dataset>
-data/lakehouse/silver/taxi_trips
-data/lakehouse/silver/weather
-data/lakehouse/silver/air_quality
-data/lakehouse/silver/taxi_zones
-data/lakehouse/gold/integrated_taxi_trips
-data/lakehouse/metadata/ingestion_runs
-data/lakehouse/metadata/rejected_records/<dataset>
-data/lakehouse/bench/taxi_trips_by_month        # Task 6, Strategy A
-data/lakehouse/bench/taxi_trips_by_pulocation   # Task 6, Strategy B
-```
-
-`--run-benchmark` prints a markdown results table at the end of the run — paste it into report section 6.6.
-
-## Notes / known follow-ups
-
-- `taxi_trips.trip_id` is a SHA-256 hash of the full normalized row, not a natural key — see report 3.7 for the reasoning and its limitation (differing any single field produces a different `trip_id`, so this catches exact duplicates only).
-- Air-quality context is a citywide hourly mean per pollutant, not zone-specific — no spatial key exists between the two sources with the datasets provided (report 5.4, 5.6).
-- Numeric range checks in `main.py`'s `build_specs()` (`fare_amount`, `trip_distance`) are starting values — tighten them against the actual data distribution before relying on them for grading-quality rejection counts.
-
----
-
-# Week 2 — Querying & Optimizing the Platform
-
-Week 2 extends the platform with an analytical query library, reusable Delta
-data products, query-optimization experiments, and a benchmarking harness. It
-builds on the Week 1 outputs (`silver/*` and `gold/integrated_taxi_trips`), so
-run the Week 1 `main.py` first.
-
-## New layout
-
-```
-urban_data_platform/
-├── run_week2.py                 # Week 2 CLI entrypoint
-├── src/
-│   ├── queries.py                # 6 analytical queries (Spark SQL library)
-│   ├── optimizations.py          # caching / pruning / broadcast / AQE experiments
-│   ├── data_products.py          # 5 materialized Delta data products
-│   └── benchmark_week2.py        # Task 5 evaluation harness
-├── WEEK2_DESIGN_REPORT.md
-└── WEEK2_BENCHMARK_REPORT.md
-```
-
-## Analytical queries (Task 1 & 2)
-
-| Key | Analysis |
-|---|---|
-| `q1_monthly_demand_by_zone` | Monthly taxi demand for each taxi zone |
-| `q2_avg_distance_by_weather` | Average trip distance under different weather conditions |
-| `q3_air_quality_vs_demand` | Relationship between air quality and taxi demand |
-| `q4_zone_demand_weather_variation` | Zones with the largest demand variation across weather |
-| `q5_peak_hours_by_weekday` | Peak travel hours for each day of the week |
-| `q6_monthly_demand_trend` | Monthly trends in taxi demand |
-
-```bash
-# Run all six queries (or one with --query <key>):
-spark-submit --packages io.delta:delta-spark_2.12:3.2.0 run_week2.py \
-    run-queries --output-root ./data/lakehouse
-spark-submit --packages io.delta:delta-spark_2.12:3.2.0 run_week2.py \
-    run-queries --output-root ./data/lakehouse --query q5_peak_hours_by_weekday --limit 30
-```
-
-## Data products (Task 4)
-
-Five products materialized under `gold/products/<name>`, each carrying
-`_data_source`, `_created_at`, `_refreshed_at`, `_schema_version` and logging a
-refresh record (rows + bytes) to `metadata/data_products`:
-`daily_mobility_summary`, `taxi_zone_statistics`, `weather_impact_summary`,
-`air_quality_impact_summary`, `borough_mobility_summary`.
-
-```bash
-spark-submit --packages io.delta:delta-spark_2.12:3.2.0 run_week2.py \
-    build-products --output-root ./data/lakehouse
-```
-
-## Optimization experiments & benchmark (Task 3 & 5)
-
-Runs the four optimization experiments (caching, partition pruning, broadcast
-join, AQE) plus baseline query timings, materialization speedups, and product
-storage overhead. Writes `bench_week2/results.json`,
-`bench_week2/benchmark_report.md`, and `EXPLAIN FORMATTED` plans under
-`bench_week2/plans/`.
-
-```bash
-spark-submit --packages io.delta:delta-spark_2.12:3.2.0 run_week2.py \
-    run-benchmark --output-root ./data/lakehouse --runs 3
-# or build products + benchmark in one shot:
-spark-submit --packages io.delta:delta-spark_2.12:3.2.0 run_week2.py \
-    all --output-root ./data/lakehouse --runs 3
-```
-
-## Week 2 output
-
-```
-data/lakehouse/gold/products/<product>          # materialized data products
-data/lakehouse/metadata/data_products           # product refresh log (rows, bytes)
-data/lakehouse/bench_week2/results.json         # machine-readable benchmark
-data/lakehouse/bench_week2/benchmark_report.md  # rendered tables
-data/lakehouse/bench_week2/plans/*.txt          # EXPLAIN FORMATTED plans
-```
+- **Match the Delta version to Spark.** `delta-spark_2.12:3.2.0` pairs with
+  Spark 3.5.x. On a different Spark version, change that coordinate to match
+  (e.g. Spark 3.4 → `delta-spark_2.12:3.1.0`).
+- **`local[*]` with no `--driver-memory` set defaults the driver heap to
+  1g.** The caching experiment in particular tries to hold the full
+  `integrated_taxi_trips` table in memory — on a real dataset this will
+  `OutOfMemoryError` without an explicit `--driver-memory`. Set it and cap
+  parallelism (`--master local[4]` rather than `local[*]`) so fewer tasks
+  compete for heap at once.
+- **`PythonException: version mismatch`** — driver and worker must use the
+  same Python. Set both:
+  ```bash
+  export PYSPARK_PYTHON=$(which python3)
+  export PYSPARK_DRIVER_PYTHON=$(which python3)
+  ```
+- **`_pickle.PicklingError` / `RecursionError` from cloudpickle** — PySpark
+  3.5.1's bundled cloudpickle is not compatible with Python 3.12+. Run under
+  Python 3.11 or earlier.
+- **Delta JAR won't download (offline/proxy)** — pre-download it once with
+  internet access, or run on a cluster that already bundles Delta.
