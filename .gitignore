@@ -4,3 +4,5 @@
 *.crc
 *.json
 *.pyc
+*.venv
+*.txt
